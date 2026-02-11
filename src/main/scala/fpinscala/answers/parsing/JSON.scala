@@ -12,7 +12,7 @@ object JSON:
   def jsonParser[Parser[+_]](P: Parsers[Parser]): Parser[JSON] =
     import P.*
 
-    def token(s: String) = string(s).token
+    def token(s: String): Parser[String] = string(s).token
 
     def array: Parser[JSON] = (
       token("[") *> value.sep(token(",")).map(vs => JArray(vs.toIndexedSeq)) <* token("]")
@@ -39,7 +39,7 @@ object JSON:
 /**
  * JSON parsing example.
  */
-@main def jsonExample =
+@main def jsonExample(): Unit =
   val jsonTxt = """
 {
   "Company name" : "Microsoft Corporation",
@@ -66,7 +66,7 @@ object JSON:
 ]
 """
 
-  def printResult[E](e: Either[E,JSON]) =
+  def printResult[E](e: Either[E,JSON]): Unit =
     e.fold(println, println)
 
   val parser = JSON.jsonParser(Reference)
