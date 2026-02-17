@@ -1,6 +1,7 @@
 package fpinscala.answers
 package parsing
 
+import scala.annotation.tailrec
 import scala.util.matching.Regex
 
 /*
@@ -20,7 +21,7 @@ object Sliceable extends Parsers[Sliceable.Parser]:
    * be `true`, and we return a `Slice` output.
    */
   // https://github.com/lampepfl/dotty/issues/13761
-  /*opaque*/ type Parser[+A] = ParseState => Result[A]
+  /*opaque*/ private type Parser[+A] = ParseState => Result[A]
 
   /** `isSliced` indicates if the current parser is surround by a
     * `slice` combinator. This lets us avoid building up values that
@@ -34,9 +35,9 @@ object Sliceable extends Parsers[Sliceable.Parser]:
     def advanceBy(numChars: Int): ParseState =
       copy(loc = loc.advanceBy(numChars))
     def input: String = loc.input.substring(loc.offset)
-    def unslice = copy(isSliced = false)
-    def reslice(s: ParseState) = copy(isSliced = s.isSliced)
-    def slice(n: Int) = loc.input.substring(loc.offset, loc.offset + n)
+    def unslice: ParseState = copy(isSliced = false)
+    def reslice(s: ParseState): ParseState = copy(isSliced = s.isSliced)
+    def slice(n: Int): String = loc.input.substring(loc.offset, loc.offset + n)
 
   /** The result of a parse--a `Parser[A]` returns a `Result[A]`.
     *
@@ -200,6 +201,7 @@ object Sliceable extends Parsers[Sliceable.Parser]:
       s =>
         var nConsumed: Int = 0
         if s.isSliced then
+          @tailrec
           def go(p: Parser[String], offset: Int): Result[String] =
             p(s.advanceBy(offset)) match
               case f @ Failure(e, true) => f
@@ -209,6 +211,7 @@ object Sliceable extends Parsers[Sliceable.Parser]:
           go(p.slice, 0).asInstanceOf[Result[List[A]]]
         else
           val buf = new collection.mutable.ListBuffer[A]
+          @tailrec
           def go(p: Parser[A], offset: Int): Result[List[A]] =
             p(s.advanceBy(offset)) match
               case Success(a, n) =>

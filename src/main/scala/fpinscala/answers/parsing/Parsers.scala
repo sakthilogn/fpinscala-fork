@@ -46,8 +46,8 @@ trait Parsers[Parser[+_]]:
     quoted.label("string literal").token
 
   /** C/Java style floating point literals, e.g .1, -1.0, 1e9, 1E-23, etc.
-    * Result is left as a string to keep full precision
-    */
+   * Result is left as a string to keep full precision
+   */
   def doubleString: Parser[String] =
     regex("[-+]?([0-9]*\\.)?[0-9]+([eE][-+]?[0-9]+)?".r).token
 
@@ -92,7 +92,7 @@ trait Parsers[Parser[+_]]:
     def product[B](p2: => Parser[B]): Parser[(A, B)] =
       p.flatMap(a => p2.map(b => (a, b)))
 
-    def **[B](p2: => Parser[B]): Parser[(A,B)] = product(p2)
+    def **[B](p2: => Parser[B]): Parser[(A, B)] = product(p2)
 
     def flatMap[B](f: A => Parser[B]): Parser[B]
 
@@ -101,15 +101,15 @@ trait Parsers[Parser[+_]]:
     def scope(msg: String): Parser[A]
 
     /** Sequences two parsers, ignoring the result of the first.
-      * We wrap the ignored half in slice, since we don't care about its result.
-      */
-    def *>[B](p2: => Parser[B]) =
+     * We wrap the ignored half in slice, since we don't care about its result.
+     */
+    def *>[B](p2: => Parser[B]): Parser[B] =
       p.slice.map2(p2)((_, b) => b)
 
     /** Sequences two parsers, ignoring the result of the second.
-      * We wrap the ignored half in slice, since we don't care about its result.
-      */
-    def <*(p2: => Parser[Any]) =
+     * We wrap the ignored half in slice, since we don't care about its result.
+     */
+    def <*(p2: => Parser[Any]): Parser[A] =
       p.map2(p2.slice)((a, b) => a)
 
     /** Attempts `p` and strips trailing whitespace, usually used for the tokens of a grammar. */
@@ -139,35 +139,41 @@ trait Parsers[Parser[+_]]:
 
     def mapLaw[A](p: Parser[A])(in: Gen[String]): Prop =
       equal(p, p.map(a => a))(in)
-      
+
 end Parsers
 
 case class Location(input: String, offset: Int = 0):
 
-  lazy val line = input.slice(0, offset + 1).count(_ == '\n') + 1
+  lazy val lineNumber1Based: Int = input.slice(0, offset + 1).count(_ == '\n') + 1
 
-  lazy val col = input.slice(0, offset + 1).lastIndexOf('\n') match
+  lazy val columnNumber1Based: Int = input.slice(0, offset + 1).lastIndexOf('\n') match
     case -1 => offset + 1
     case lineStart => offset - lineStart
 
   def toError(msg: String): ParseError =
     ParseError(List((this, msg)))
 
-  def advanceBy(n: Int) = copy(offset = offset + n)
+  def advanceBy(n: Int): Location = copy(offset = offset + n)
 
   def remaining: String = input.substring(offset)
 
-  def slice(n: Int) = input.substring(offset, offset + n)
+  def slice(n: Int): String = input.substring(offset, offset + n)
 
   /* Returns the line corresponding to this location */
+  // This seems wrong because Location("a",0).currentLine returns an empty string
+  // but returning "a" would be the correct answer.
   def currentLine: String =
     if input.length > 1
     then
-      val itr = input.linesIterator.drop(line - 1)
+      val linesBeforeCurrent = lineNumber1Based - 1
+      val itr = input.linesIterator.drop(linesBeforeCurrent)
       if (itr.hasNext) itr.next() else ""
     else ""
 
-  def columnCaret = (" " * (col - 1)) + "^"
+  def columnCaret: String =
+    val columnNumber0Based = columnNumber1Based - 1
+    val numberOfSpacesBeforeCaret = " " * columnNumber0Based
+    numberOfSpacesBeforeCaret + "^"
 
 case class ParseError(stack: List[(Location, String)] = Nil):
   def push(loc: Location, msg: String): ParseError =
@@ -176,33 +182,34 @@ case class ParseError(stack: List[(Location, String)] = Nil):
   def label(s: String): ParseError =
     ParseError(latestLoc.map((_, s)).toList)
 
-  def latest: Option[(Location,String)] =
+  def latest: Option[(Location, String)] =
     stack.lastOption
 
   def latestLoc: Option[Location] =
     latest map (_._1)
 
   /**
-  Display collapsed error stack - any adjacent stack elements with the
-  same location are combined on one line. For the bottommost error, we
-  display the full line, with a caret pointing to the column of the error.
-  Example:
+   * Display collapsed error stack - any adjacent stack elements with the
+   * same location are combined on one line. For the bottommost error, we
+   * display the full line, with a caret pointing to the column of the error.
+   * Example:
+   *
+   * 1.1 file 'companies.json'; array
+   * 5.1 object
+   * 5.2 key-value
+   * 5.10 ':'
+   *
+   * { "MSFT" ; 24,
+   * ^
+   */
 
-  1.1 file 'companies.json'; array
-  5.1 object
-  5.2 key-value
-  5.10 ':'
-
-  { "MSFT" ; 24,
-           ^
-  */
-  override def toString =
+  override def toString: String =
     if stack.isEmpty then "no error message"
     else
-      val collapsed = collapseStack(stack)
-      val context =
+      val collapsed: List[(Location, String)] = collapseStack(stack)
+      val context: String =
         collapsed.lastOption.map("\n\n" + _._1.currentLine).getOrElse("") +
-        collapsed.lastOption.map("\n" + _._1.columnCaret).getOrElse("")
+          collapsed.lastOption.map("\n" + _._1.columnCaret).getOrElse("")
       collapsed.map((loc, msg) => s"${formatLoc(loc)} $msg").mkString("\n") + context
 
   /* Builds a collapsed version of the given error stack -
@@ -211,23 +218,27 @@ case class ParseError(stack: List[(Location, String)] = Nil):
   def collapseStack(s: List[(Location, String)]): List[(Location, String)] =
     s.groupBy(_._1).
       view.
-      mapValues(_.map(_._2).mkString("; ")).
+      mapValues((tuples: List[(Location, String)]) => tuples.map(_._2).mkString("; ")).
       toList.sortBy(_._1.offset)
 
-  def formatLoc(l: Location): String = s"${l.line}.${l.col}"
+  def formatLoc(l: Location): String = s"${l.lineNumber1Based}.${l.columnNumber1Based}"
 
 class Examples[Parser[+_]](P: Parsers[Parser]):
+
   import P.*
 
   val nonNegativeInt: Parser[Int] =
-    for
-      nString <- regex("[0-9]+".r)
-      n <- nString.toIntOption match
-        case Some(n) => succeed(n)
-        case None => fail("expected an integer")
-    yield n
+    regex("[0-9]+".r)
+      .flatMap:
+        nString =>
+          nString.toIntOption match
+            case Some(n) => succeed(n)
+            case None => fail("expected an integer")
 
-  val nConsecutiveAs: Parser[Int] = 
+  val nConsecutiveAs: Parser[Int] =
+    //    nonNegativeInt
+    //      .flatMap:
+    //        n => char('a').listOfN(n)
     for
       n <- nonNegativeInt
       _ <- char('a').listOfN(n)

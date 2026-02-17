@@ -2,8 +2,9 @@ package fpinscala.answers
 package parsing
 
 import scala.util.matching.Regex
+import Reference.Result.{Failure, Success}
 
-import Reference.Result.{Success, Failure}
+import scala.annotation.tailrec
 
 object Reference extends Parsers[Reference.Parser]:
 
@@ -104,6 +105,7 @@ object Reference extends Parsers[Reference.Parser]:
       l =>
         var nConsumed: Int = 0
         val buf = new collection.mutable.ListBuffer[A]
+        @tailrec
         def go(p: Parser[A], offset: Int): Result[List[A]] =
           p(l.advanceBy(offset)) match
             case Success(a, n) =>
